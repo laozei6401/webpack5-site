@@ -7,15 +7,16 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin')
 const ConfigWebpackPlugin = require('./plugins/config-webpack-plugin')
 
-const { resolve } = require('./build/help')
 const { paths } = require('./build/config')
+const { resolve } = require('./build/help')
 
 const NODE_ENV = process.env.NODE_ENV
 const isDevelopment = NODE_ENV === 'development'
-const hashMode = isDevelopment ? '' : 'contenthash'
+const hashMode = isDevelopment ? '' : '.[contenthash]'
 
 /** @type import('webpack').Configuration */
 module.exports = {
+	cache: true,
 	mode: NODE_ENV,
 	target: 'web',
 	devtool: isDevelopment ? 'eval-cheap-module-source-map' : false,
@@ -28,8 +29,8 @@ module.exports = {
 		pathinfo: false,
 		path: paths.build,
 		publicPath: '/',
-		filename: `js/[name].[${hashMode}].js`,
-		chunkFilename: `js/bundle.[${hashMode}].js`,
+		filename: `js/[name]${hashMode}.js`,
+		chunkFilename: `js/bundle${hashMode}.js`,
 		hashDigestLength: 8
 	},
 
@@ -80,9 +81,7 @@ module.exports = {
 		cacheWithContext: false,
 		modules: [paths.modules],
 		alias: {
-			'@': paths.root,
-			assets: paths.assets,
-			images: paths.images
+			'@': paths.root
 		}
 	},
 
@@ -90,43 +89,50 @@ module.exports = {
 		noParse: /jquery|lodash/,
 		rules: [
 			{
-				test: /\.js$/,
-				include: resolve('src'),
-				use: ['babel-loader']
-			},
-			{
-				test: /\.s?css$/i,
-				use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader', 'sass-loader']
-			},
-			{
-				test: /\.(jpg|jpeg|png|gif|webp)$/i,
-				use: [
+				oneOf: [
 					{
+						test: /\.js$/,
+						include: resolve('src'),
+						use: ['babel-loader?cacheDirectory=true']
+					},
+					{
+						test: /\.s?css$/i,
+						include: resolve('src'),
+						use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader', 'sass-loader']
+					},
+					{
+						test: /\.(jpg|jpeg|png|gif|webp)$/i,
+						include: resolve('src'),
+						use: [
+							{
+								loader: 'url-loader',
+								options: {
+									name: 'image/[hash:8].[ext]',
+									esModule: false,
+									limit: 4096
+								}
+							}
+						]
+					},
+					{
+						test: /\.(mp4|webm|ogg|mp3|wav|flac|aac)(\?.*)?$/,
+						include: resolve('src'),
 						loader: 'url-loader',
 						options: {
-							name: 'image/[hash:8].[ext]',
-							esModule: false,
-							limit: 4096
+							name: 'media/[hash:8].[ext]',
+							esModule: false
 						}
 					},
-					'image-webpack-loader'
+					{
+						test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/i,
+						include: resolve('src'),
+						loader: 'url-loader',
+						options: {
+							name: 'fonts/[hash:8].[ext]',
+							esModule: false
+						}
+					}
 				]
-			},
-			{
-				test: /\.(mp4|webm|ogg|mp3|wav|flac|aac)(\?.*)?$/,
-				loader: 'url-loader',
-				options: {
-					name: 'media/[hash:8].[ext]',
-					esModule: false
-				}
-			},
-			{
-				test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/i,
-				loader: 'url-loader',
-				options: {
-					name: 'fonts/[hash:8].[ext]',
-					esModule: false
-				}
 			}
 		]
 	},
@@ -144,8 +150,8 @@ module.exports = {
 			chunks: ['main']
 		}),
 		new MiniCssExtractPlugin({
-			filename: `css/[name].[${hashMode}].css`,
-			chunkFilename: `css/bundle.[${hashMode}].css`
+			filename: `css/[name]${hashMode}.css`,
+			chunkFilename: `css/bundle${hashMode}.css`
 		}),
 		!isDevelopment &&
 			new CompressionPlugin({
@@ -159,7 +165,10 @@ module.exports = {
 		compress: true,
 		disableHostCheck: true,
 		stats: 'errors-only',
-		overlay: { errors: true }
+		overlay: { errors: true },
+		writeToDisk: filepath => {
+			return /\.html$/.test(filepath)
+		}
 	},
 
 	performance: false
