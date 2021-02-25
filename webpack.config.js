@@ -1,148 +1,166 @@
-const path = require('path')
-
-const { ProgressPlugin } = require('webpack')
-const { CleanWebpackPlugin } = require('clean-webpack-plugin')
+const { ProvidePlugin } = require('webpack')
+const TerserPlugin = require('terser-webpack-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
+const { CleanWebpackPlugin } = require('clean-webpack-plugin')
 const CompressionPlugin = require('compression-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin')
-const TerserPlugin = require('terser-webpack-plugin')
-const ExposeWebpackPlugin = require('./plugins/webpack-expose-plugin')
+const ConfigWebpackPlugin = require('./plugins/config-webpack-plugin')
+
+const { resolve } = require('./build/help')
+const { paths } = require('./build/config')
 
 const NODE_ENV = process.env.NODE_ENV
 const isDevelopment = NODE_ENV === 'development'
-const hashMode = isDevelopment ? 'hash' : 'contenthash'
+const hashMode = isDevelopment ? '' : 'contenthash'
 
-function resolve(dir) {
-	return path.resolve(process.cwd(), dir)
-}
+/** @type import('webpack').Configuration */
+module.exports = {
+	mode: NODE_ENV,
+	target: 'web',
+	devtool: isDevelopment ? 'eval-cheap-module-source-map' : false,
 
-module.exports = function () {
-	/** @type import('webpack').Configuration */
-	const config = {
-		mode: NODE_ENV,
-		target: 'web',
-		devtool: isDevelopment ? 'eval-cheap-module-source-map' : false,
+	entry: {
+		main: resolve('src/main.js')
+	},
 
-		entry: {
-			app: resolve('src/app.js')
-		},
+	output: {
+		pathinfo: false,
+		path: paths.build,
+		publicPath: '/',
+		filename: `js/[name].[${hashMode}].js`,
+		chunkFilename: `js/bundle.[${hashMode}].js`,
+		hashDigestLength: 8
+	},
 
-		output: {
-			pathinfo: false,
-			publicPath: '/',
-			path: resolve('dist'),
-			filename: `js/[name].[${hashMode}].js`,
-			chunkFilename: `js/bundle.[${hashMode}].js`,
-			hashDigestLength: 10
-		},
+	optimization: {
+		runtimeChunk: 'single',
+		moduleIds: 'deterministic',
+		minimize: !isDevelopment,
+		minimizer: [
+			new TerserPlugin({
+				terserOptions: {
+					format: {
+						comments: false
+					}
+				},
+				extractComments: false
+			}),
+			new CssMinimizerPlugin({
+				minimizerOptions: {
+					preset: [
+						'default',
+						{
+							discardComments: { removeAll: true }
+						}
+					]
+				}
+			})
+		],
+		splitChunks: {
+			chunks: 'all',
+			minSize: 0,
+			minChunks: 2,
+			cacheGroups: {
+				vendor: {
+					test: /[\\/]node_modules[\\/]/,
+					name: 'vendors',
+					priority: 5
+				},
+				default: {
+					priority: 0,
+					reuseExistingChunk: true
+				}
+			}
+		}
+	},
 
-		optimization: {
-			minimize: !isDevelopment,
-			minimizer: [
-				new TerserPlugin({
-					terserOptions: {
-						format: {
-							comments: false
+	resolve: {
+		symlinks: false,
+		cacheWithContext: false,
+		modules: [paths.modules],
+		alias: {
+			'@': paths.root,
+			assets: paths.assets,
+			images: paths.images
+		}
+	},
+
+	module: {
+		noParse: /jquery|lodash/,
+		rules: [
+			{
+				test: /\.js$/,
+				include: resolve('src'),
+				use: ['babel-loader']
+			},
+			{
+				test: /\.s?css$/i,
+				use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader', 'sass-loader']
+			},
+			{
+				test: /\.(jpg|jpeg|png|gif|webp)$/i,
+				use: [
+					{
+						loader: 'url-loader',
+						options: {
+							name: 'image/[hash:8].[ext]',
+							esModule: false,
+							limit: 4096
 						}
 					},
-					extractComments: false
-				}),
-				new CssMinimizerPlugin({
-					minimizerOptions: {
-						preset: [
-							'default',
-							{
-								discardComments: { removeAll: true }
-							}
-						]
-					}
-				})
-			],
-			splitChunks: {
-				chunks: 'all',
-				cacheGroups: {
-					vendor: {
-						test: /[\\/]node_modules[\\/]/,
-						priority: -10,
-						name: 'vendors',
-						chunks: 'all'
-					},
-					default: {
-						minSize: 0,
-						minChunks: 2,
-						priority: -20,
-						reuseExistingChunk: true
-					}
+					'image-webpack-loader'
+				]
+			},
+			{
+				test: /\.(mp4|webm|ogg|mp3|wav|flac|aac)(\?.*)?$/,
+				loader: 'url-loader',
+				options: {
+					name: 'media/[hash:8].[ext]',
+					esModule: false
+				}
+			},
+			{
+				test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/i,
+				loader: 'url-loader',
+				options: {
+					name: 'fonts/[hash:8].[ext]',
+					esModule: false
 				}
 			}
-		},
+		]
+	},
 
-		resolve: {
-			symlinks: false,
-			cacheWithContext: false,
-			alias: {
-				'@': resolve('src'),
-				images: resolve('src/images')
-			}
-		},
+	plugins: [
+		new ProvidePlugin({
+			$: 'jquery',
+			jQuery: 'jquery'
+		}),
+		new ConfigWebpackPlugin(),
+		new CleanWebpackPlugin(),
+		new HtmlWebpackPlugin({
+			filename: 'index.html',
+			template: resolve('src/index.html'),
+			chunks: ['main']
+		}),
+		new MiniCssExtractPlugin({
+			filename: `css/[name].[${hashMode}].css`,
+			chunkFilename: `css/bundle.[${hashMode}].css`
+		}),
+		!isDevelopment &&
+			new CompressionPlugin({
+				test: /\.(js|css)$/,
+				threshold: 8192
+			})
+	].filter(Boolean),
 
-		module: {
-			rules: [
-				{
-					test: /\.js$/,
-					include: resolve('src'),
-					use: ['babel-loader']
-				},
-				{
-					test: /\.s?css$/i,
-					use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader', 'sass-loader']
-				},
-				{
-					test: /\.(png|svg|jpg|jpeg|gif)$/i,
-					type: 'asset',
-					generator: {
-						filename: 'images/[hash][ext][query]'
-					}
-				},
-				{
-					test: /\.(woff|woff2|eot|ttf|otf)$/i,
-					type: 'asset',
-					generator: {
-						filename: 'fonts/[hash][ext][query]'
-					}
-				}
-			]
-		},
+	devServer: {
+		open: true,
+		compress: true,
+		disableHostCheck: true,
+		stats: 'errors-only',
+		overlay: { errors: true }
+	},
 
-		plugins: [
-			new CleanWebpackPlugin(),
-			new ExposeWebpackPlugin({
-				packages: ['jquery']
-			}),
-			new HtmlWebpackPlugin({ title: '管理输出' }),
-			new MiniCssExtractPlugin({
-				filename: `css/[name].[${hashMode}].css`,
-				chunkFilename: `css/bundle.[${hashMode}].css`
-			}),
-
-			false &&
-				new CompressionPlugin({
-					test: /\.(js|css)$/,
-					threshold: 8192
-				})
-		].filter(Boolean),
-
-		devServer: {
-			open: true,
-			compress: true,
-			clientLogLevel: 'error'
-		},
-
-		performance: {
-			hints: false
-		}
-	}
-
-	return config
+	performance: false
 }
