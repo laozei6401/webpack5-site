@@ -1,29 +1,27 @@
 const { ProvidePlugin } = require('webpack')
 const TerserPlugin = require('terser-webpack-plugin')
-const HtmlWebpackPlugin = require('html-webpack-plugin')
 const { CleanWebpackPlugin } = require('clean-webpack-plugin')
 const CompressionPlugin = require('compression-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin')
-const ConfigWebpackPlugin = require('./plugins/config-webpack-plugin')
 
 const { paths } = require('./build/config')
-const { resolve } = require('./build/help')
+const { optPort, generateEntries } = require('./build/help')
+
+const { entries, htmlPlugins } = generateEntries()
 
 const NODE_ENV = process.env.NODE_ENV
 const isDevelopment = NODE_ENV === 'development'
 const hashMode = isDevelopment ? '' : '.[contenthash]'
 
 /** @type import('webpack').Configuration */
-module.exports = {
+const webpackConfig = {
 	cache: true,
 	mode: NODE_ENV,
 	target: 'web',
 	devtool: isDevelopment ? 'eval-cheap-module-source-map' : false,
 
-	entry: {
-		main: resolve('src/main.js')
-	},
+	entry: entries,
 
 	output: {
 		pathinfo: false,
@@ -36,8 +34,9 @@ module.exports = {
 
 	optimization: {
 		runtimeChunk: 'single',
+		removeEmptyChunks: true,
 		moduleIds: 'deterministic',
-		minimize: !isDevelopment,
+
 		minimizer: [
 			new TerserPlugin({
 				terserOptions: {
@@ -58,6 +57,7 @@ module.exports = {
 				}
 			})
 		],
+
 		splitChunks: {
 			chunks: 'all',
 			minSize: 0,
@@ -81,7 +81,8 @@ module.exports = {
 		cacheWithContext: false,
 		modules: [paths.modules],
 		alias: {
-			'@': paths.root
+			'@': paths.root,
+			images: paths.images
 		}
 	},
 
@@ -91,18 +92,32 @@ module.exports = {
 			{
 				oneOf: [
 					{
+						test: /\.html$/,
+						include: paths.root,
+						use: [
+							'handlebars-loader',
+							'extract-loader',
+							{
+								loader: 'html-loader',
+								options: {
+									esModule: false
+								}
+							}
+						]
+					},
+					{
 						test: /\.js$/,
-						include: resolve('src'),
+						include: paths.root,
 						use: ['babel-loader?cacheDirectory=true']
 					},
 					{
 						test: /\.s?css$/i,
-						include: resolve('src'),
-						use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader', 'sass-loader']
+						include: paths.root,
+						use: [MiniCssExtractPlugin.loader, 'css-loader', 'sass-loader', 'postcss-loader']
 					},
 					{
 						test: /\.(jpg|jpeg|png|gif|webp)$/i,
-						include: resolve('src'),
+						include: paths.root,
 						use: [
 							{
 								loader: 'url-loader',
@@ -116,7 +131,7 @@ module.exports = {
 					},
 					{
 						test: /\.(mp4|webm|ogg|mp3|wav|flac|aac)(\?.*)?$/,
-						include: resolve('src'),
+						include: paths.root,
 						loader: 'url-loader',
 						options: {
 							name: 'media/[hash:8].[ext]',
@@ -125,7 +140,7 @@ module.exports = {
 					},
 					{
 						test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/i,
-						include: resolve('src'),
+						include: paths.root,
 						loader: 'url-loader',
 						options: {
 							name: 'fonts/[hash:8].[ext]',
@@ -142,13 +157,8 @@ module.exports = {
 			$: 'jquery',
 			jQuery: 'jquery'
 		}),
-		new ConfigWebpackPlugin(),
 		new CleanWebpackPlugin(),
-		new HtmlWebpackPlugin({
-			filename: 'index.html',
-			template: resolve('src/index.html'),
-			chunks: ['main']
-		}),
+		...htmlPlugins,
 		new MiniCssExtractPlugin({
 			filename: `css/[name]${hashMode}.css`,
 			chunkFilename: `css/bundle${hashMode}.css`
@@ -163,13 +173,13 @@ module.exports = {
 	devServer: {
 		open: true,
 		compress: true,
-		disableHostCheck: true,
 		stats: 'errors-only',
+		disableHostCheck: true,
 		overlay: { errors: true },
-		writeToDisk: filepath => {
-			return /\.html$/.test(filepath)
-		}
+		writeToDisk: filepath => /\.html$/.test(filepath)
 	},
 
 	performance: false
 }
+
+module.exports = optPort(webpackConfig)
